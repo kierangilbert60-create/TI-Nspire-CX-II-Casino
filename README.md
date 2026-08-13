@@ -25,7 +25,9 @@ pointing/clicking at a cramped 320×240 betting table.
 
 ## Files
 
-- `src/casino.lua` — the entire app (single script, ~700 lines).
+- `src/casino.lua` — the casino app (single script, ~700 lines).
+- `src/algebra_assistant.lua` — a College Algebra / SAT Math helper (see
+  below), also a single-script Lua document.
 
 ## Installing it on your calculator
 
@@ -40,8 +42,10 @@ of these you have available:
    Windows/macOS and includes a full on-screen emulator plus the Script
    Editor authoring tool.
 2. Create a new document → **Insert → Script Editor**.
-3. Open `src/casino.lua` from this repo, copy its entire contents, and
-   paste it into the Script Editor page, replacing the placeholder text.
+3. Open `src/casino.lua` (or `src/algebra_assistant.lua` for the algebra
+   helper — see its own section below) from this repo, copy its entire
+   contents, and paste it into the Script Editor page, replacing the
+   placeholder text.
 4. Click outside the editor to run it — the software's emulator will run
    the casino immediately so you can try it on your computer first.
 5. Save the document as `Casino.tns`.
@@ -167,3 +171,59 @@ sections per game. A few obvious knobs if you want to tweak it:
 - `WHEEL_ORDER` — the physical wheel pocket sequence (used for the spin
   animation only; the actual winning number is drawn independently with
   `math.random`, so table layout changes are purely cosmetic).
+
+---
+
+## Algebra Assistant (`src/algebra_assistant.lua`)
+
+A "mini-AI" style helper for College Algebra and the SAT Math section. It's
+a menu of small tools rather than a chatbot: type an expression or some
+numbers, press Enter, and it does the algebra for you. Install it the same
+way as the casino app (Option A or B above), just point the Script Editor
+at `src/algebra_assistant.lua` instead of `casino.lua` and save it as its
+own document (e.g. `AlgebraAI.tns`) — it's a separate `.tns` file, not a
+page inside the casino document.
+
+**Requires a CAS handheld (TI-Nspire CX II CAS) for four of the nine
+tools** — Equation Solver, System of 2 Equations, Simplify/Factor/Expand,
+and Evaluate f(x) all call the calculator's own CAS via Lua's `math.eval()`.
+Quadratic Helper, Percent Toolkit, Rate·Distance·Time, and the Formula
+Sheet are plain arithmetic and work on any Nspire, CAS or not.
+
+### Tools
+
+| # | Tool | What it does |
+|---|------|---------------|
+| 1 | **Equation Solver** | Type any equation (`x^2-5x+6=0`, or just `2x+3=11` — `=0` is added automatically if you leave off an `=`). The variable is auto-detected from your input. |
+| 2 | **Quadratic Helper** | Enter `a`, `b`, `c` for `ax²+bx+c=0` and get the discriminant, root type (real/repeated/complex), both roots, the vertex, axis of symmetry, and an exact CAS-simplified form. |
+| 3 | **System of 2 Equations** | Type two equations (e.g. `y=2x+3` and `y=-x+1`) and get the intersection solved simultaneously. |
+| 4 | **Simplify/Factor/Expand** | Type an expression; toggle between `simplify`, `factor`, and `expand` modes with Up/Down. |
+| 5 | **Evaluate f(x)** | Type an expression and a value; substitutes and evaluates it (`2x^2-3x+1` at `x=5` → `36`). |
+| 6 | **Percent Toolkit** | Cycle between "A% of B", "% change from A to B", and "A is what % of B" — the three SAT percent word-problem shapes. |
+| 7 | **Rate·Distance·Time** | Enter any two of Distance/Rate/Time and leave the third field blank — it solves for the unknown (`d = r·t`). |
+| 8 | **SAT Formula Sheet** | 10 scrollable reference pages: linear equations, quadratics, exponent/radical rules, factoring patterns, systems, 2D/3D geometry, coordinate geometry, statistics/probability, and function-notation tips. |
+| 9 | **How To Use** | In-app quick reference for the controls above. |
+
+### Controls
+
+| Key | Action |
+|---|---|
+| Up / Down | Move menu selection, switch mode toggles, or page through the formula sheet |
+| Left / Right | Switch between input fields on multi-field tools |
+| 1-9 (in the menu) | Jump straight to that tool |
+| Type | Enter text/numbers into the active field |
+| Backspace | Delete the last character in the active field |
+| Enter | Run the tool / compute |
+| Esc | Clear the current result, or return to the menu if there's nothing to clear |
+
+> **Note on testing:** Like the casino app, this was logic-tested against a
+> desktop Lua 5.1 interpreter with a mock of the Nspire drawing API and a
+> stubbed `math.eval` to verify every tool builds the correct CAS query
+> string and that every input field, guard clause (divide-by-zero, `a=0`,
+> non-numeric input, blank-field handling) and screen transition behaves
+> correctly — it has **not** been run against the real TI-Nspire CAS engine
+> or the Firebird emulator, since neither is available in this environment.
+> `math.eval()` is a documented, widely-used Nspire Lua API for invoking the
+> CAS from a script, but if a query's exact output formatting looks off on
+> real hardware (e.g. an unexpected CAS string shape), it's a quick fix —
+> send over what you see.
