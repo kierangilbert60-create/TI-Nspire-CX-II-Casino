@@ -1064,5 +1064,15 @@ end
 -- Boot
 -- ----------------------------------------------------------------------------
 
-math.randomseed(os.time and os.time() or 12345)
+-- The Nspire Lua sandbox has no `os` library at all (not even os.time), so
+-- we can't seed off the wall clock. Instead pull entropy from the freshly
+-- allocated table's identity string ("table: 0x55e2a1b2c3d4"), which varies
+-- run-to-run with the interpreter's heap state.
+local function makeSeed()
+  local n = 0
+  local hex = tostring({}):match("(%x+)%s*$")
+  if hex then n = tonumber(hex, 16) or 0 end
+  return (n % 2147483647) + 1
+end
+math.randomseed(makeSeed())
 lobby.enter()
