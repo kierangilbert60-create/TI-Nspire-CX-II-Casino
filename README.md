@@ -23,9 +23,20 @@ Everything is **keyboard-only by design** — it works identically whether
 your handheld has a Clickpad or a Touchpad, and it's genuinely faster than
 pointing/clicking at a cramped 320×240 betting table.
 
+## Also in this repo
+
+- **[Step-by-Step Equation Solver](EQUATION_SOLVER.md)** (`src/eqsolver.lua`) —
+  a separate program for the same handheld: type an equation, pick a mode from
+  a drop-down (solve, factor, expand, solve-for-a-variable, evaluate, 2x2
+  systems, analyze a polynomial) and get the full worked solution, every step
+  with its reason, plus the answer. Exact fraction arithmetic, not a CAS
+  wrapper. See [EQUATION_SOLVER.md](EQUATION_SOLVER.md).
+
 ## Files
 
-- `src/casino.lua` — the entire app (single script, ~700 lines).
+- `src/casino.lua` — the casino (single script, ~1000 lines).
+- `src/eqsolver.lua` — the equation solver (single script, ~3900 lines).
+- `tests/` — desktop test suite for the solver (`lua5.1 tests/run_tests.lua`).
 
 ## Installing it on your calculator
 
