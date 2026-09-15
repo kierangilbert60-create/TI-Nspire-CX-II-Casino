@@ -10,14 +10,28 @@ local M = {}
 local gc = {}
 gc.__index = gc
 
-function M.newGC()
-  return setmetatable({ calls = 0, strings = {}, font = { "sansserif", "r", 10 } }, gc)
+function M.newGC(record)
+  return setmetatable({ calls = 0, strings = {}, ops = record and {} or nil,
+                        colour = { 0, 0, 0 }, font = { "sansserif", "r", 10 } }, gc)
 end
+
+-- Records a drawing call so tests (and the PNG preview) can replay the screen.
+-- NB: a vararg in a table constructor keeps only its first value unless it is
+-- last, so the fields are written out explicitly.
+local function op(self, kind, a, b, c, d)
+  if self.ops then
+    self.ops[#self.ops + 1] = { kind, a, b, c, d,
+      col = { self.colour[1], self.colour[2], self.colour[3] },
+      fnt = { self.font[1], self.font[2], self.font[3] } }
+  end
+end
+M.op = op
 
 function gc:setColorRGB(r, g, b)
   assert(type(r) == "number" and r >= 0 and r <= 255, "bad red")
   assert(type(g) == "number" and g >= 0 and g <= 255, "bad green")
   assert(type(b) == "number" and b >= 0 and b <= 255, "bad blue")
+  self.colour = { r, g, b }
   self.calls = self.calls + 1
 end
 
@@ -39,6 +53,7 @@ function gc:drawString(s, x, y, anchor)
   assert(anchor == nil or anchor == "top" or anchor == "middle" or anchor == "baseline" or anchor == "bottom",
          "bad anchor " .. tostring(anchor))
   self.strings[#self.strings + 1] = { text = s, x = x, y = y, w = self:getStringWidth(s) }
+  M.op(self, "str", x, y, self:getStringWidth(s), s)
   self.calls = self.calls + 1
 end
 
@@ -64,11 +79,11 @@ function gc:getStringWidth(s)
 end
 
 function gc:getStringHeight(s) return self.font[3] + 4 end
-function gc:fillRect(x, y, w, h) num(x); num(y); num(w); num(h); self.calls = self.calls + 1 end
-function gc:drawRect(x, y, w, h) num(x); num(y); num(w); num(h); self.calls = self.calls + 1 end
+function gc:fillRect(x, y, w, h) num(x); num(y); num(w); num(h); M.op(self, "fill", x, y, w, h); self.calls = self.calls + 1 end
+function gc:drawRect(x, y, w, h) num(x); num(y); num(w); num(h); M.op(self, "rect", x, y, w, h); self.calls = self.calls + 1 end
 function gc:fillArc(x, y, w, h, a, b) num(x); num(y); num(w); num(h); num(a); num(b); self.calls = self.calls + 1 end
 function gc:drawArc(x, y, w, h, a, b) num(x); num(y); num(w); num(h); num(a); num(b); self.calls = self.calls + 1 end
-function gc:drawLine(x1, y1, x2, y2) num(x1); num(y1); num(x2); num(y2); self.calls = self.calls + 1 end
+function gc:drawLine(x1, y1, x2, y2) num(x1); num(y1); num(x2); num(y2); M.op(self, "line", x1, y1, x2, y2); self.calls = self.calls + 1 end
 function gc:fillPolygon(pts) assert(type(pts) == "table"); self.calls = self.calls + 1 end
 function gc:clipRect(mode, x, y, w, h) self.calls = self.calls + 1 end
 function gc:setPen(thickness, style) self.calls = self.calls + 1 end

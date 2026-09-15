@@ -3141,6 +3141,21 @@ local app = {
   busy     = false,
   lastEvent = "none yet",
   eventCount = 0,
+  kpRow    = 1,
+  kpCol    = 1,
+}
+
+-- On-screen keyboard. The whole program has to be usable with nothing but the
+-- arrow keys and ENTER, because some hosts hand a script its arrow keys
+-- without ever delivering on.charIn. Each cell is { label, action }; with no
+-- action the label is inserted literally.
+local KEYPAD = {
+  { { "7" }, { "8" }, { "9" }, { "(" }, { ")" }, { "^" } },
+  { { "4" }, { "5" }, { "6" }, { "+" }, { "-" }, { "*" } },
+  { { "1" }, { "2" }, { "3" }, { "/" }, { "=" }, { "." } },
+  { { "0" }, { "x" }, { "y" }, { "z" }, { "a" }, { "b" } },
+  { { "sqrt(" }, { "abs(" }, { "pi" }, { "," }, { "_", "space" }, { "DEL", "del" } },
+  { { "CLEAR", "clear" }, { "SOLVE", "run" }, { "CLOSE", "back" } },
 }
 
 local UI = {}
@@ -3362,6 +3377,26 @@ local function drawFooter(gc, text, right)
   return H - 15
 end
 
+-- The host can report a window taller than the area it actually shows, which
+-- puts anything pinned to H (a bottom footer) out of sight. Key hints live
+-- here instead, immediately below the header, where they cannot be cut off.
+local function drawHintBar(gc, y, text, right)
+  setColor(gc, C.chip)
+  gc:fillRect(0, y, W, 13)
+  setColor(gc, C.rule)
+  gc:drawLine(0, y + 13, W, y + 13)
+  setColor(gc, C.dim)
+  gc:setFont("sansserif", "r", 7)
+  gc:drawString(text, 5, y + 1, "top")
+  if right then
+    local w = gc:getStringWidth(right)
+    if 5 + gc:getStringWidth(text) + 8 < W - 5 - w then
+      gc:drawString(right, W - 5 - w, y + 1, "top")
+    end
+  end
+  return y + 14
+end
+
 local function drawPane(gc, lines, top, bottom, scroll)
   local y = top + 2
   local shown = 0
@@ -3399,7 +3434,11 @@ end
 
 function UI.paintInput(gc)
   setColor(gc, C.bg); gc:fillRect(0, 0, W, H)
-  local y = drawHeader(gc, "Step-by-Step Solver", "TAB = mode") + 6
+  local y = drawHeader(gc, "Step-by-Step Solver")
+  y = drawHintBar(gc, y,
+        (app.text == "" and "ENTER keyboard   <- -> mode   ESC menu"
+                         or "ENTER solve   ESC menu   DEL erase"),
+        "keys " .. intStr(app.eventCount) .. ":" .. app.lastEvent) + 4
   local m = MODES[app.mode]
 
   gc:setFont("sansserif", "r", 8)
@@ -3480,6 +3519,7 @@ function UI.paintMenu(gc)
   UI.paintInput(gc)
   local rows = {}
   for i, m in ipairs(MODES) do rows[i] = m.name end
+  rows[#rows + 1] = "On-screen keyboard"
   rows[#rows + 1] = "Examples for this mode"
   rows[#rows + 1] = "Help / how to type maths"
   app.menuRows = rows
@@ -3536,9 +3576,102 @@ function UI.paintExamples(gc)
   drawFooter(gc, "up/down choose   ENTER load into the entry line   ESC back")
 end
 
+function UI.paintKeypad(gc)
+  setColor(gc, C.bg); gc:fillRect(0, 0, W, H)
+  local y = drawHeader(gc, "On-screen keyboard")
+  y = drawHintBar(gc, y, "arrows move   ENTER press   ESC close",
+        "keys " .. intStr(app.eventCount) .. ":" .. app.lastEvent) + 3
+
+  -- what has been built so far
+  setColor(gc, C.panel); gc:fillRect(6, y, W - 12, 22)
+  setColor(gc, C.accent); gc:drawRect(6, y, W - 12, 22)
+  gc:setFont("sansserif", "b", 10)
+  local shown = app.text
+  if shown == "" then
+    setColor(gc, C.dim); gc:setFont("sansserif", "r", 9)
+    gc:drawString(MODES[app.mode].hint, 12, y + 5, "top")
+  else
+    -- keep the tail visible when the expression is longer than the box
+    while #shown > 0 and gc:getStringWidth(shown) > W - 28 do
+      shown = shown:sub(2)
+    end
+    setColor(gc, C.text)
+    gc:drawString(shown, 12, y + 4, "top")
+    setColor(gc, C.caret)
+    gc:fillRect(12 + gc:getStringWidth(shown) + 1, y + 4, 2, 14)
+  end
+  y = y + 26
+
+  local cols = 6
+  local cw = math.floor((W - 12) / cols)
+  local ch = 17
+  app.kpGeom = { x = 6, y = y, cw = cw, ch = ch }
+  for r, row in ipairs(KEYPAD) do
+    for c, cell in ipairs(row) do
+      local cx = 6 + (c - 1) * cw
+      local cy = y + (r - 1) * ch
+      local wide = (#row < cols) and math.floor((W - 12) / #row) or cw
+      if #row < cols then cx = 6 + (c - 1) * wide end
+      local selected = (r == app.kpRow and c == app.kpCol)
+      if selected then
+        setColor(gc, C.sel); gc:fillRect(cx + 1, cy + 1, wide - 3, ch - 3)
+        setColor(gc, C.selTx)
+      else
+        setColor(gc, C.panel); gc:fillRect(cx + 1, cy + 1, wide - 3, ch - 3)
+        setColor(gc, C.chipEdge); gc:drawRect(cx + 1, cy + 1, wide - 3, ch - 3)
+        setColor(gc, cell[2] and C.accent or C.text)
+      end
+      gc:setFont("sansserif", "b", (#cell[1] > 3) and 8 or 10)
+      local label = (cell[2] == "space") and "space" or cell[1]
+      local tw = gc:getStringWidth(label)
+      gc:drawString(label, cx + math.floor((wide - tw) / 2), cy + 3, "top")
+    end
+  end
+end
+
+function UI.keypadPress()
+  local row = KEYPAD[app.kpRow]
+  local cell = row and row[app.kpCol]
+  if not cell then return end
+  local action = cell[2]
+  if action == nil then
+    UI.insert(cell[1])
+  elseif action == "space" then
+    UI.insert(" ")
+  elseif action == "del" then
+    if app.caret > 0 then
+      local prev = utf8Prev(app.text, app.caret)
+      app.text = app.text:sub(1, prev) .. app.text:sub(app.caret + 1)
+      app.caret = prev
+    end
+  elseif action == "clear" then
+    app.text, app.caret, app.inScroll = "", 0, 0
+  elseif action == "run" then
+    UI.run()
+  elseif action == "back" then
+    app.screen = "input"
+  end
+end
+
+function UI.keypadMove(key)
+  if key == "up" then
+    app.kpRow = (app.kpRow - 2) % #KEYPAD + 1
+  elseif key == "down" then
+    app.kpRow = app.kpRow % #KEYPAD + 1
+  elseif key == "left" then
+    app.kpCol = app.kpCol - 1
+  elseif key == "right" then
+    app.kpCol = app.kpCol + 1
+  end
+  local n = #KEYPAD[app.kpRow]
+  if app.kpCol < 1 then app.kpCol = n end
+  if app.kpCol > n then app.kpCol = 1 end
+end
+
 function UI.paintPane(gc, title, right, footer)
   setColor(gc, C.bg); gc:fillRect(0, 0, W, H)
   local top = drawHeader(gc, title, right)
+  top = drawHintBar(gc, top, footer or "")
   local bottom = H - 15
 
   if app.screen == "result" and app.result and app.result.answers then
@@ -3581,11 +3714,9 @@ function UI.run()
   local m = MODES[app.mode]
   local text = app.text:gsub("^%s+", ""):gsub("%s+$", "")
   if text == "" then
-    if app.result then
-      app.screen = "result"; app.lines = nil; app.layoutW = -1; app.scroll = 0
-    else
-      app.error = "Type a problem first, or press TAB and choose Examples."
-    end
+    -- Nothing to solve: open the on-screen keyboard rather than complain.
+    -- On a host that never delivers on.charIn this is the only way in.
+    UI.openKeypad()
     return
   end
   app.error = nil
@@ -3625,6 +3756,12 @@ function UI.openMenu()
   app.screen = "menu"
 end
 
+function UI.openKeypad()
+  app.kpRow, app.kpCol = 1, 1
+  app.error = nil
+  app.screen = "keys"
+end
+
 function UI.chooseMenu()
   local n = #MODES
   if app.menuSel <= n then
@@ -3632,6 +3769,8 @@ function UI.chooseMenu()
     app.screen = "input"
     app.error = nil
   elseif app.menuSel == n + 1 then
+    UI.openKeypad()
+  elseif app.menuSel == n + 2 then
     app.exSel = 1
     app.screen = "examples"
   else
@@ -3680,11 +3819,13 @@ function on.paint(gc)
       UI.paintMenu(gc)
     elseif app.screen == "examples" then
       UI.paintExamples(gc)
+    elseif app.screen == "keys" then
+      UI.paintKeypad(gc)
     elseif app.screen == "result" then
       local total = math.max(1, #(app.lines or {}))
       UI.paintPane(gc, MODES[app.mode].name,
         intStr(math.min(app.scroll + 1, total)) .. "/" .. intStr(total),
-        "up/down scroll   <- -> page   ENTER edit   ESC back   TAB mode")
+        "up/down scroll   <- -> page   ENTER edit   ESC back")
     elseif app.screen == "help" then
       UI.paintPane(gc, "Help", nil, "up/down scroll   <- -> page   ESC back")
     else
@@ -3717,6 +3858,8 @@ function on.charIn(ch)
     local d = tonumber(ch)
     local ex = MODES[app.mode].examples
     if d and d >= 1 and d <= #ex then app.exSel = d end
+  elseif app.screen == "keys" then
+    UI.insert(ch)
   elseif app.screen == "result" or app.screen == "help" then
     if ch == "+" then UI.scrollBy(-1) elseif ch == "-" then UI.scrollBy(1) end
   end
@@ -3727,6 +3870,8 @@ function on.enterKey()
   logEvent("enter")
   if app.screen == "input" then
     UI.run()
+  elseif app.screen == "keys" then
+    UI.keypadPress()
   elseif app.screen == "menu" then
     UI.chooseMenu()
   elseif app.screen == "examples" then
@@ -3835,6 +3980,8 @@ function on.arrowKey(key)
     local n = #(app.menuRows or MODES)
     if key == "up" then app.menuSel = (app.menuSel - 2) % n + 1 end
     if key == "down" then app.menuSel = app.menuSel % n + 1 end
+  elseif app.screen == "keys" then
+    UI.keypadMove(key)
   elseif app.screen == "examples" then
     local n = #MODES[app.mode].examples
     if key == "up" then app.exSel = (app.exSel - 2) % n + 1 end
@@ -3897,6 +4044,19 @@ function on.mouseDown(x, y)
       app.caret = #app.text
       app.screen = "input"
     end
+  elseif app.screen == "keys" then
+    local g = app.kpGeom
+    if g and y >= g.y then
+      local r = math.floor((y - g.y) / g.ch) + 1
+      if KEYPAD[r] then
+        local wide = (#KEYPAD[r] < 6) and math.floor((W - 12) / #KEYPAD[r]) or g.cw
+        local c = math.floor((x - g.x) / wide) + 1
+        if KEYPAD[r][c] then
+          app.kpRow, app.kpCol = r, c
+          UI.keypadPress()
+        end
+      end
+    end
   elseif app.screen == "result" or app.screen == "help" then
     if y < H / 2 then UI.scrollBy(-3) else UI.scrollBy(3) end
   end
@@ -3948,6 +4108,7 @@ local function registerMenu()
 
   local actions = { "Solver",
     { "Solve it now", function() logEvent("menu"); UI.run(); refresh() end },
+    { "On-screen keyboard", function() logEvent("menu"); UI.openKeypad(); refresh() end },
     { "Examples for this mode", function()
         logEvent("menu"); app.exSel = 1; app.screen = "examples"; refresh()
       end },
@@ -3982,6 +4143,7 @@ if rawget(_G, "__eqsolver_test") then
   _G.__eqsolver_test.ENG = ENG
   _G.__eqsolver_test.UI = UI
   _G.__eqsolver_test.MODES = MODES
+  _G.__eqsolver_test.KEYPAD = KEYPAD
   _G.__eqsolver_test.app = app
   _G.__eqsolver_test.parseOne = parseOne
   _G.__eqsolver_test.wrapText = wrapText

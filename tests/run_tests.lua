@@ -503,7 +503,7 @@ for _, size in ipairs({ { 318, 212 }, { 400, 300 }, { 640, 480 } }) do
     ok(good and app.screen == "menu", "paint drop-down @" .. w .. " " .. tostring(err))
     noOverflow(gc, w, "menu @" .. w)
 
-    app.menuSel = #MODES + 1
+    app.menuSel = #MODES + 2
     on.enterKey()
     good, err, gc = paintNow(w, h)
     ok(good and app.screen == "examples", "paint examples @" .. w .. " " .. tostring(err))
@@ -513,11 +513,19 @@ for _, size in ipairs({ { 318, 212 }, { 400, 300 }, { 640, 480 } }) do
     ok(app.screen == "input" and app.text ~= "", "picking an example fills the entry line")
 
     on.tabKey()
-    app.menuSel = #MODES + 2
+    app.menuSel = #MODES + 3
     on.enterKey()
     good, err, gc = paintNow(w, h)
     ok(good and app.screen == "help", "paint help @" .. w .. " " .. tostring(err))
     noOverflow(gc, w, "help @" .. w)
+
+    -- the on-screen keyboard has to paint at every size too
+    on.tabKey()
+    app.menuSel = #MODES + 1
+    on.enterKey()
+    good, err, gc = paintNow(w, h)
+    ok(good and app.screen == "keys", "paint keypad @" .. w .. " " .. tostring(err))
+    noOverflow(gc, w, "keypad @" .. w)
   end
 end
 
@@ -601,11 +609,13 @@ if type(mock.palette) == "table" then
   resetApp(); app.text = "x^2-4=0"; app.caret = #app.text
   ok(pcall(actionMenu[2][2]) and app.screen == "result", "menu: Solve it now")
   resetApp()
-  ok(pcall(actionMenu[3][2]) and app.screen == "examples", "menu: Examples")
-  resetApp(); app.text = "junk"
-  ok(pcall(actionMenu[4][2]) and app.text == "", "menu: Clear the entry line")
+  ok(pcall(actionMenu[3][2]) and app.screen == "keys", "menu: On-screen keyboard")
   resetApp()
-  ok(pcall(actionMenu[5][2]) and app.screen == "help", "menu: Help")
+  ok(pcall(actionMenu[4][2]) and app.screen == "examples", "menu: Examples")
+  resetApp(); app.text = "junk"
+  ok(pcall(actionMenu[5][2]) and app.text == "", "menu: Clear the entry line")
+  resetApp()
+  ok(pcall(actionMenu[6][2]) and app.screen == "help", "menu: Help")
 end
 
 -- Arrows change mode when the entry line is empty, and move the caret when it
@@ -634,6 +644,117 @@ on.backspaceKey(); on.clearKey(); on.mouseDown(10, 10)
 ok(app.eventCount == before + 8, "all eight event kinds are counted (got " ..
    (app.eventCount - before) .. ")")
 ok(app.lastEvent == "click", "the last event is recorded by name")
+
+-- ---------------------------------------------------------------------------
+group = "arrows-only operation"
+-- ---------------------------------------------------------------------------
+
+-- The screen recording showed a host that delivers on.arrowKey but never
+-- on.charIn, so the whole program must be drivable with arrows and ENTER.
+local KEYPAD = T.KEYPAD
+ok(type(KEYPAD) == "table" and #KEYPAD >= 5, "the on-screen keyboard is defined")
+
+local function openKeypad()
+  resetApp()
+  on.enterKey()                 -- ENTER on an empty line opens the keyboard
+  return app.screen == "keys"
+end
+ok(openKeypad(), "ENTER on an empty entry line opens the on-screen keyboard")
+
+-- walk to a cell using nothing but arrow presses
+local function gotoCell(r, c)
+  app.kpRow, app.kpCol = 1, 1
+  for _ = 2, r do on.arrowKey("down") end
+  for _ = 2, c do on.arrowKey("right") end
+  return app.kpRow == r and app.kpCol == c
+end
+
+local allReachable = true
+for r, row in ipairs(KEYPAD) do
+  for c = 1, #row do
+    if not gotoCell(r, c) then allReachable = false end
+  end
+end
+ok(allReachable, "every key is reachable with arrow presses alone")
+
+-- find where a piece of text lives on the grid
+local function findKey(label)
+  for r, row in ipairs(KEYPAD) do
+    for c, cell in ipairs(row) do
+      if cell[1] == label and cell[2] == nil then return r, c end
+    end
+  end
+end
+
+-- build an equation one keypress at a time, then solve it, never typing
+openKeypad()
+local target = "2x+3=11"
+local builtOk = true
+for i = 1, #target do
+  local ch = target:sub(i, i)
+  local r, c = findKey(ch)
+  if not r or not gotoCell(r, c) then builtOk = false; break end
+  on.enterKey()
+end
+ok(builtOk, "every character of " .. target .. " has a key")
+eq(app.text, target, "the equation was built with arrows and ENTER only")
+
+-- SOLVE lives on the last row
+local sr, sc
+for r, row in ipairs(KEYPAD) do
+  for c, cell in ipairs(row) do
+    if cell[2] == "run" then sr, sc = r, c end
+  end
+end
+ok(sr ~= nil, "the keyboard has a SOLVE key")
+if sr then
+  gotoCell(sr, sc)
+  on.enterKey()
+  eq(app.screen, "result", "SOLVE runs the solver")
+  eq(table.concat(app.result and app.result.answers or {}, " "), "x = 4",
+     "solved 2x+3=11 without a single character key")
+end
+
+-- DEL / CLEAR / CLOSE
+openKeypad()
+app.text, app.caret = "abc", 3
+local dr, dc, cr, cc, br, bc
+for r, row in ipairs(KEYPAD) do
+  for c, cell in ipairs(row) do
+    if cell[2] == "del" then dr, dc = r, c end
+    if cell[2] == "clear" then cr, cc = r, c end
+    if cell[2] == "back" then br, bc = r, c end
+  end
+end
+gotoCell(dr, dc); on.enterKey()
+eq(app.text, "ab", "keypad DEL removes the character before the cursor")
+gotoCell(cr, cc); on.enterKey()
+eq(app.text, "", "keypad CLEAR empties the entry line")
+gotoCell(br, bc); on.enterKey()
+eq(app.screen, "input", "keypad CLOSE returns to the entry line")
+
+-- random arrow mashing must never push the cursor off the grid
+openKeypad()
+math.randomseed(7)
+local inRange = true
+for _ = 1, 400 do
+  on.arrowKey(({ "up", "down", "left", "right" })[math.random(4)])
+  local row = KEYPAD[app.kpRow]
+  if not row or app.kpCol < 1 or app.kpCol > #row then inRange = false; break end
+end
+ok(inRange, "the keypad cursor never leaves the grid")
+
+-- the key hints must sit near the top, not pinned to a height the host may
+-- over-report (that is what hid the footer on the handheld)
+resetApp()
+local _, _, gcHint = paintNow(325, 250)
+local topText = {}
+for _, rec in ipairs(gcHint.strings) do
+  if rec.y < 40 then topText[#topText + 1] = rec.text end
+end
+local joinedTop = table.concat(topText, " | ")
+ok(joinedTop:find("ENTER"), "the key hints are drawn in the top 40px (" .. joinedTop .. ")")
+ok(joinedTop:find("keys "), "the event counter is drawn in the top 40px")
 
 -- ---------------------------------------------------------------------------
 group = "cas fallback"

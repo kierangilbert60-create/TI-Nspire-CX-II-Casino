@@ -64,9 +64,16 @@ A mouse works too in the computer software.
 
 ## If it does not respond to the keyboard
 
-The footer of the entry screen shows a counter: `keys 7:char x`. That is the
-number of events the script has received and the last one. **Press any key and
-watch that counter.**
+**You do not need the keyboard.** Press **ENTER** on an empty entry line and an
+on-screen keyboard opens. Move around it with the arrow keys, press **ENTER**
+to hit a key, and finish on **SOLVE**. Digits, letters, operators, `sqrt(`,
+`abs(`, `pi`, DEL and CLEAR are all there. The whole program — choosing a mode,
+building an equation, solving it, scrolling the steps — works with nothing but
+the four arrows and ENTER.
+
+To find out what your handheld is actually delivering, look at the counter in
+the bar just under the title: `keys 7:char x`. That is how many events the
+script has received and what the last one was. **Press any key and watch it.**
 
 **The counter does not move.** The script is not getting your keypresses — the
 host software is keeping them. Nothing is wrong with the program.
@@ -81,6 +88,18 @@ host software is keeping them. Nothing is wrong with the program.
 
 **The counter moves but nothing changes on screen.** Then events arrive and the
 program is at fault — tell me the counter text you see and what you pressed.
+
+### The on-screen keyboard
+
+| Key | Action |
+|---|---|
+| **arrows** | Move around the grid |
+| **ENTER** | Press the selected key |
+| **ESC** | Close it |
+
+`DEL` erases one character, `CLEAR` empties the line, `SOLVE` runs the current
+mode, `CLOSE` goes back. It is also on the `menu` key under *Solver*, and in
+the drop-down.
 
 ### Changing mode when TAB does nothing
 
