@@ -578,6 +578,64 @@ ok(pcall(on.restore, nil) and pcall(on.restore, "junk") and pcall(on.restore, {}
    "restore survives junk state")
 
 -- ---------------------------------------------------------------------------
+group = "controls"
+-- ---------------------------------------------------------------------------
+
+-- The native Nspire menu is the control path that cannot be swallowed by the
+-- host software, so it has to carry every mode plus the core actions.
+ok(type(mock.palette) == "table", "a toolpalette menu was registered")
+if type(mock.palette) == "table" then
+  local modeMenu, actionMenu = mock.palette[1], mock.palette[2]
+  eq(modeMenu and modeMenu[1], "Mode", "first menu is Mode")
+  eq(#modeMenu - 1, #MODES, "every mode has a menu entry")
+  for i, m in ipairs(MODES) do
+    eq(modeMenu[i + 1][1], m.name, "menu entry " .. i .. " names its mode")
+  end
+  -- picking a mode from the menu must actually switch mode
+  resetApp()
+  app.screen = "result"
+  modeMenu[4][2]()
+  ok(app.mode == 3 and app.screen == "input", "the menu switches mode and returns to the entry line")
+  -- the action menu's entries must all run without error
+  eq(actionMenu[1], "Solver", "second menu is Solver")
+  resetApp(); app.text = "x^2-4=0"; app.caret = #app.text
+  ok(pcall(actionMenu[2][2]) and app.screen == "result", "menu: Solve it now")
+  resetApp()
+  ok(pcall(actionMenu[3][2]) and app.screen == "examples", "menu: Examples")
+  resetApp(); app.text = "junk"
+  ok(pcall(actionMenu[4][2]) and app.text == "", "menu: Clear the entry line")
+  resetApp()
+  ok(pcall(actionMenu[5][2]) and app.screen == "help", "menu: Help")
+end
+
+-- Arrows change mode when the entry line is empty, and move the caret when it
+-- is not. This is the fallback for a host that eats TAB and ESC.
+resetApp()
+local startMode = app.mode
+on.arrowKey("right")
+eq(app.mode, startMode % #MODES + 1, "right arrow on an empty line advances the mode")
+on.arrowKey("left")
+eq(app.mode, startMode, "left arrow on an empty line goes back")
+on.arrowKey("left")
+eq(app.mode, (startMode - 2) % #MODES + 1, "mode wraps around")
+
+resetApp()
+typeIn("abc")
+local modeBefore = app.mode
+on.arrowKey("left")
+ok(app.mode == modeBefore and app.caret == 2, "with text present the arrows move the caret instead")
+
+-- Every event must bump the counter shown in the footer, so a silent handheld
+-- can be told apart from a mishandled key.
+resetApp()
+local before = app.eventCount
+on.charIn("x"); on.arrowKey("up"); on.enterKey(); on.escapeKey(); on.tabKey()
+on.backspaceKey(); on.clearKey(); on.mouseDown(10, 10)
+ok(app.eventCount == before + 8, "all eight event kinds are counted (got " ..
+   (app.eventCount - before) .. ")")
+ok(app.lastEvent == "click", "the last event is recorded by name")
+
+-- ---------------------------------------------------------------------------
 group = "cas fallback"
 -- ---------------------------------------------------------------------------
 

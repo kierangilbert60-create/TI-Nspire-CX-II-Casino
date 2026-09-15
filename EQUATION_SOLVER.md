@@ -43,8 +43,9 @@ A mouse works too in the computer software.
 | Key | Action |
 |---|---|
 | **ENTER** | Run the current mode |
-| **TAB** | Open the mode drop-down |
-| **ESC** | Open the mode drop-down |
+| **menu key** / Document Tools | Native Nspire menu: pick any mode (always works) |
+| **TAB** or **ESC** | Open the mode drop-down (the host may swallow these) |
+| **left / right** on an empty line | Cycle through the modes |
 | **left / right** | Move the cursor |
 | **up / down** | Recall earlier entries |
 | **DEL** | Delete the character before the cursor |
@@ -58,6 +59,43 @@ A mouse works too in the computer software.
 | **ENTER** | Back to the entry line, keeping what you typed |
 | **ESC** | Back to the entry line |
 | **TAB** | Change mode |
+
+---
+
+## If it does not respond to the keyboard
+
+The footer of the entry screen shows a counter: `keys 7:char x`. That is the
+number of events the script has received and the last one. **Press any key and
+watch that counter.**
+
+**The counter does not move.** The script is not getting your keypresses — the
+host software is keeping them. Nothing is wrong with the program.
+
+- In the computer software, **close the Script Editor pane** after you run the
+  script (Ctrl+B / *Set Script*). While that pane is open it holds the
+  keyboard. Then **click once on the page itself** so the page has focus, and
+  type.
+- On the handheld, press **ctrl+tab** until the script's page is the active
+  one, then type.
+- Make sure you are on the page with the script, not still in the editor.
+
+**The counter moves but nothing changes on screen.** Then events arrive and the
+program is at fault — tell me the counter text you see and what you pressed.
+
+### Changing mode when TAB does nothing
+
+TAB and ESC belong to the Nspire itself, which uses them to move between page
+objects, so the host can swallow them before the script sees them. There are
+three other ways in, and at least one always works:
+
+1. **The `menu` key** (handheld) or **Document Tools ▸ Mode** (computer
+   software). The script registers a real Nspire menu listing every mode, plus
+   Solve / Examples / Clear / Help. This is the most reliable route because the
+   menu belongs to the script rather than to the keyboard.
+2. **Left / right arrow while the entry line is empty** cycles through the
+   modes. With text on the line those arrows move the cursor instead.
+3. **Click the mode bar** at the top of the screen (computer software, or a
+   Touchpad handheld).
 
 ---
 

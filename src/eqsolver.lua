@@ -3139,6 +3139,8 @@ local app = {
   history  = {},
   histPos  = 0,
   busy     = false,
+  lastEvent = "none yet",
+  eventCount = 0,
 }
 
 local UI = {}
@@ -3345,7 +3347,7 @@ local function drawHeader(gc, title, right)
   return 21
 end
 
-local function drawFooter(gc, text)
+local function drawFooter(gc, text, right)
   setColor(gc, C.chip)
   gc:fillRect(0, H - 15, W, 15)
   setColor(gc, C.rule)
@@ -3353,6 +3355,10 @@ local function drawFooter(gc, text)
   setColor(gc, C.dim)
   gc:setFont("sansserif", "r", 7)
   gc:drawString(text, 5, H - 13, "top")
+  if right then
+    local w = gc:getStringWidth(right)
+    gc:drawString(right, W - 5 - w, H - 13, "top")
+  end
   return H - 15
 end
 
@@ -3401,7 +3407,7 @@ function UI.paintInput(gc)
   gc:drawString("Mode", 6, y + 4, "top")
   local chipX = 6 + gc:getStringWidth("Mode") + 6
   local chipW = W - chipX - 6
-  app.chipRect = { chipX, y, chipW, 19 }
+  app.chipRect = { 0, y - 4, W, 27 }
   setColor(gc, C.chip); gc:fillRect(chipX, y, chipW, 19)
   setColor(gc, C.chipEdge); gc:drawRect(chipX, y, chipW, 19)
   setColor(gc, C.header); gc:setFont("sansserif", "b", 9)
@@ -3466,7 +3472,8 @@ function UI.paintInput(gc)
     end
   end
 
-  drawFooter(gc, "ENTER solve   TAB mode   ESC menu   <- -> cursor   up/down history")
+  drawFooter(gc, "ENTER solve   ESC/TAB menu   <- -> mode when line is empty",
+             "keys " .. intStr(app.eventCount) .. ":" .. app.lastEvent)
 end
 
 function UI.paintMenu(gc)
@@ -3649,6 +3656,14 @@ end
 
 local function refresh() platform.window:invalidate() end
 
+-- The footer shows the last event and a running count. If those never move
+-- while you press keys, the script is not receiving them (a focus problem in
+-- the host software) rather than mishandling them.
+local function logEvent(name)
+  app.lastEvent = name
+  app.eventCount = app.eventCount + 1
+end
+
 function on.resize(w, h)
   if type(w) == "number" and w > 40 then W = w end
   if type(h) == "number" and h > 40 then H = h end
@@ -3688,6 +3703,7 @@ function on.paint(gc)
 end
 
 function on.charIn(ch)
+  logEvent("char " .. tostring(ch))
   if type(ch) ~= "string" or ch == "" then return end
   if app.screen == "input" then
     UI.insert(ch)
@@ -3708,6 +3724,7 @@ function on.charIn(ch)
 end
 
 function on.enterKey()
+  logEvent("enter")
   if app.screen == "input" then
     UI.run()
   elseif app.screen == "menu" then
@@ -3728,6 +3745,7 @@ function on.enterKey()
 end
 
 function on.escapeKey()
+  logEvent("esc")
   if app.screen == "input" then
     UI.openMenu()
   elseif app.screen == "menu" then
@@ -3739,16 +3757,19 @@ function on.escapeKey()
 end
 
 function on.tabKey()
+  logEvent("tab")
   UI.openMenu()
   refresh()
 end
 
 function on.backtabKey()
+  logEvent("backtab")
   UI.openMenu()
   refresh()
 end
 
 function on.backspaceKey()
+  logEvent("del")
   if app.screen == "input" and app.caret > 0 then
     local prev = utf8Prev(app.text, app.caret)
     app.text = app.text:sub(1, prev) .. app.text:sub(app.caret + 1)
@@ -3759,6 +3780,7 @@ function on.backspaceKey()
 end
 
 function on.deleteKey()
+  logEvent("fwd-del")
   if app.screen == "input" and app.caret < #app.text then
     local nxt = utf8Next(app.text, app.caret)
     app.text = app.text:sub(1, app.caret) .. app.text:sub(nxt + 1)
@@ -3768,6 +3790,7 @@ function on.deleteKey()
 end
 
 function on.clearKey()
+  logEvent("clear")
   if app.screen == "input" then
     app.text, app.caret, app.inScroll, app.error = "", 0, 0, nil
   end
@@ -3775,11 +3798,23 @@ function on.clearKey()
 end
 
 function on.arrowKey(key)
+  logEvent(tostring(key))
   if app.screen == "input" then
     if key == "left" then
-      app.caret = utf8Prev(app.text, app.caret)
+      -- With an empty entry line there is no caret to move, so the
+      -- left/right arrows change mode instead. This is the one mode control
+      -- that cannot be swallowed by the host software's own key handling.
+      if app.text == "" then
+        app.mode = (app.mode - 2) % #MODES + 1
+      else
+        app.caret = utf8Prev(app.text, app.caret)
+      end
     elseif key == "right" then
-      app.caret = utf8Next(app.text, app.caret)
+      if app.text == "" then
+        app.mode = app.mode % #MODES + 1
+      else
+        app.caret = utf8Next(app.text, app.caret)
+      end
     elseif key == "up" then
       if #app.history > 0 and app.histPos > 1 then
         app.histPos = app.histPos - 1
@@ -3819,6 +3854,7 @@ local function inRect(r, x, y)
 end
 
 function on.mouseDown(x, y)
+  logEvent("click")
   if app.screen == "input" then
     if inRect(app.chipRect, x, y) then
       UI.openMenu()
@@ -3891,6 +3927,45 @@ function on.restore(state)
     end
   end)
 end
+
+-- ---- native Nspire menu ------------------------------------------------------
+
+-- The handheld's own menu (the `menu` key, or Document Tools in the computer
+-- software) is registered with every mode. It is the most reliable control
+-- path: TAB and ESC can be claimed by the host for moving between page
+-- objects, but this menu belongs to the script.
+local function registerMenu()
+  local modeMenu = { "Mode" }
+  for i, m in ipairs(MODES) do
+    modeMenu[#modeMenu + 1] = { m.name, function()
+      app.mode = i
+      app.screen = "input"
+      app.error = nil
+      logEvent("menu")
+      refresh()
+    end }
+  end
+
+  local actions = { "Solver",
+    { "Solve it now", function() logEvent("menu"); UI.run(); refresh() end },
+    { "Examples for this mode", function()
+        logEvent("menu"); app.exSel = 1; app.screen = "examples"; refresh()
+      end },
+    { "Clear the entry line", function()
+        logEvent("menu")
+        app.text, app.caret, app.inScroll, app.error = "", 0, 0, nil
+        app.screen = "input"
+        refresh()
+      end },
+    { "Help", function() logEvent("menu"); on.help() end },
+  }
+
+  toolpalette.register({ modeMenu, actions })
+end
+
+-- toolpalette exists on every OS that runs Lua scripts, but never let a
+-- missing one stop the program from starting.
+pcall(registerMenu)
 
 -- ---- boot -------------------------------------------------------------------
 

@@ -92,7 +92,12 @@ _G.timer = {
 }
 
 _G.on = {}
-_G.toolpalette = { register = function() end }
+_G.toolpalette = {
+  register = function(menus)
+    M.palette = menus
+    return true
+  end,
+}
 _G.var = { store = function() end, recall = function() return nil end }
 _G.clipboard = { addText = function() end, getText = function() return "" end }
 _G.cursor = { set = function() end }
