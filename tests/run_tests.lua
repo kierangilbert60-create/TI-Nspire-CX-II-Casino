@@ -441,6 +441,8 @@ local function resetApp()
   app.layoutW, app.scroll, app.inScroll = -1, 0, 0
   app.mode, app.menuSel, app.exSel = 1, 1, 1
   app.history, app.histPos = {}, 1
+  app.focus, app.menuTop = "entry", 1
+  app.kpRow, app.kpCol = 1, 1
 end
 
 local function typeIn(text)
@@ -559,12 +561,17 @@ eq(app.text, "", "backspace on an empty line is harmless")
 on.arrowKey("left"); on.arrowKey("right")
 eq(app.caret, 0, "caret stays inside the text")
 
--- history
+-- what you entered before shows up in the Examples list
 resetApp()
-typeIn("3x+7=22"); on.enterKey(); on.escapeKey(); on.escapeKey()
+typeIn("3x+7=22"); on.enterKey()
+ok(app.screen == "result", "the typed equation solved")
 app.screen = "input"; app.text = ""; app.caret = 0
-on.arrowKey("up")
-eq(app.text, "3x+7=22", "up-arrow recalls the last entry")
+local exList = T.UI.exampleList()
+local foundHist = false
+for _, e in ipairs(exList) do
+  if e == "3x+7=22" then foundHist = true end
+end
+ok(foundHist, "an earlier entry appears in the Examples list")
 
 -- bad input reaches the user as a message, never as a crash
 resetApp()
@@ -753,8 +760,125 @@ for _, rec in ipairs(gcHint.strings) do
   if rec.y < 40 then topText[#topText + 1] = rec.text end
 end
 local joinedTop = table.concat(topText, " | ")
-ok(joinedTop:find("ENTER"), "the key hints are drawn in the top 40px (" .. joinedTop .. ")")
+ok(joinedTop:find("mode list") or joinedTop:find("ENTER"),
+   "the key hints are drawn in the top 40px (" .. joinedTop .. ")")
 ok(joinedTop:find("keys "), "the event counter is drawn in the top 40px")
+
+-- ---------------------------------------------------------------------------
+group = "typed text is visible"
+-- ---------------------------------------------------------------------------
+
+-- The whole point: whatever is typed must actually be drawn in the entry box.
+-- It used to be wrapped in gc:clipRect, which came out blank on real hardware,
+-- so the mock now treats any clipRect call as fatal.
+local function drawnText(w, h)
+  local _, _, gc = paintNow(w or 325, h or 217)
+  local out = {}
+  for _, rec in ipairs(gc.strings) do out[#out + 1] = rec.text end
+  return table.concat(out, "\n"), gc
+end
+
+resetApp()
+typeIn("2x+3=11")
+eq(app.text, "2x+3=11", "characters reach the buffer")
+local painted = drawnText()
+ok(painted:find("2x+3=11", 1, true), "the typed text is actually drawn (" ..
+   painted:gsub("\n", " / "):sub(1, 90) .. ")")
+
+-- the placeholder shows when the line is empty
+resetApp()
+painted = drawnText()
+ok(painted:find(MODES[app.mode].hint, 1, true),
+   "the example hint is drawn while the line is empty")
+
+-- a caret must be drawn in both states (it lived inside the old clip too)
+local function caretPresent()
+  on.resize(325, 217)
+  local gc = mock.newGC(true)
+  on.paint(gc)
+  for _, o in ipairs(gc.ops or {}) do
+    if o[1] == "fill" and o[4] == 2 and o[5] and o[5] > 8 then return true end
+  end
+  return false
+end
+resetApp()
+ok(caretPresent(), "the caret is drawn on an empty line")
+resetApp(); typeIn("x+1")
+ok(caretPresent(), "the caret is drawn after typing")
+
+-- long entries must still render, trimmed to the box rather than clipped
+resetApp()
+typeIn(string.rep("x+1+", 40))
+painted = drawnText()
+ok(painted:find("x+1+", 1, true), "a very long entry still draws something")
+local _, gcLong = drawnText()
+for _, rec in ipairs(gcLong.strings) do
+  if rec.text:find("x%+1%+") then
+    ok(rec.x + rec.w <= 325 + 3,
+       "the trimmed entry text stays inside the box (ends at " .. (rec.x + rec.w) .. ")")
+    break
+  end
+end
+
+-- every mode's placeholder, and a typed value, render at three widths
+for _, w in ipairs({ 300, 325, 400 }) do
+  for i in ipairs(MODES) do
+    resetApp(); app.mode = i
+    typeIn("x^2-4=0")
+    local p2 = drawnText(w, 217)
+    if not ok(p2:find("x^2-4=0", 1, true),
+              "typed text draws in mode " .. MODES[i].id .. " @" .. w) then break end
+  end
+end
+
+-- ---------------------------------------------------------------------------
+group = "drop-down"
+-- ---------------------------------------------------------------------------
+
+resetApp()
+eq(app.focus, "entry", "the entry line has the focus to start with")
+on.arrowKey("up")
+eq(app.focus, "mode", "up-arrow moves the focus to the drop-down")
+local startMode = app.mode
+on.arrowKey("right")
+eq(app.mode, startMode % #MODES + 1, "right-arrow steps the mode while the chip is focused")
+on.arrowKey("left")
+eq(app.mode, startMode, "left-arrow steps back")
+on.arrowKey("down")
+eq(app.focus, "entry", "down-arrow returns to the entry line")
+
+on.arrowKey("up")
+on.enterKey()
+eq(app.screen, "menu", "ENTER on the focused chip opens the list")
+local _, _, gcMenu = paintNow(325, 217)
+ok(app.menuRect and app.chipAnchor and app.menuRect[2] >= app.chipAnchor[2],
+   "the list drops down from the chip, not from the middle of the screen")
+ok(app.menuRect[1] == app.chipAnchor[1] and app.menuRect[3] == app.chipAnchor[3],
+   "the list lines up with the chip")
+ok(app.menuRect[2] + app.menuRect[4] <= 217 - 15,
+   "the list clears the footer band (bottom at " .. (app.menuRect[2] + app.menuRect[4]) .. ")")
+noOverflow(gcMenu, 325, "drop-down @325")
+
+on.arrowKey("down"); on.enterKey()
+eq(app.screen, "input", "picking from the list closes it")
+eq(app.focus, "entry", "and hands the focus back to the entry line so you can type")
+
+-- the list scrolls rather than overflowing when the screen is short
+resetApp(); on.arrowKey("up"); on.enterKey()
+paintNow(325, 150)
+ok(app.menuRect[2] + app.menuRect[4] <= 150 - 15,
+   "the list still fits when the page is only 150 tall")
+for _ = 1, #MODES + 4 do on.arrowKey("down") end
+paintNow(325, 150)
+ok(app.menuTop >= 1 and app.menuSel >= app.menuTop,
+   "the selection stays inside the scrolled window")
+
+-- ESC closes it
+resetApp(); on.arrowKey("up"); on.enterKey()
+on.escapeKey()
+eq(app.screen, "input", "ESC closes the drop-down")
+
+
 
 -- ---------------------------------------------------------------------------
 group = "cas fallback"

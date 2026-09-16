@@ -39,17 +39,35 @@ entry line for you) and **Help**.
 Everything is keyboard-driven, so it works the same on Clickpad and Touchpad.
 A mouse works too in the computer software.
 
+The screen has two stops: the **Mode drop-down** at the top and the **entry
+line** below it. **Up** and **down** move between them.
+
 ### Entry line
 | Key | Action |
 |---|---|
+| type | The characters go straight into the box |
 | **ENTER** | Run the current mode |
-| **menu key** / Document Tools | Native Nspire menu: pick any mode (always works) |
-| **TAB** or **ESC** | Open the mode drop-down (the host may swallow these) |
-| **left / right** on an empty line | Cycle through the modes |
-| **left / right** | Move the cursor |
-| **up / down** | Recall earlier entries |
+| **up** | Jump to the mode drop-down |
+| **down** | Open the on-screen keyboard |
+| **left / right** | Move the cursor (or change mode when the line is empty) |
 | **DEL** | Delete the character before the cursor |
 | **clear** | Empty the entry line |
+
+### Mode drop-down (top of the screen)
+| Key | Action |
+|---|---|
+| **ENTER** | Open the list |
+| **left / right** | Step through the modes without opening the list |
+| **down** | Back to the entry line |
+
+With the list open: **up/down** choose, **ENTER** selects, **ESC** closes. The
+list also holds the on-screen keyboard, the examples and the help page, and it
+scrolls when the page is too short for every row.
+
+The same modes sit on the **menu key** (Document Tools in the computer
+software), and **TAB** opens the drop-down where the host allows it.
+
+Whatever you entered before is added to the end of the Examples list.
 
 ### Solution screen
 | Key | Action |
@@ -64,8 +82,11 @@ A mouse works too in the computer software.
 
 ## If it does not respond to the keyboard
 
-**You do not need the keyboard.** Press **ENTER** on an empty entry line and an
-on-screen keyboard opens. Move around it with the arrow keys, press **ENTER**
+First look at the counter in the bar under the title (`keys 7:char x`): if it
+moves when you press a key, the handheld is reaching the script.
+
+**You do not need the keyboard either way.** Press **down** on the entry line
+and an on-screen keyboard opens. Move around it with the arrow keys, press **ENTER**
 to hit a key, and finish on **SOLVE**. Digits, letters, operators, `sqrt(`,
 `abs(`, `pi`, DEL and CLEAR are all there. The whole program — choosing a mode,
 building an equation, solving it, scrolling the steps — works with nothing but
@@ -88,6 +109,15 @@ host software is keeping them. Nothing is wrong with the program.
 
 **The counter moves but nothing changes on screen.** Then events arrive and the
 program is at fault — tell me the counter text you see and what you pressed.
+
+### Nothing appears in the box as you type
+
+Fixed in the current version. The entry box used to draw its contents inside a
+`gc:clipRect(...)` region, which comes out **completely blank** on a real CX II
+— no placeholder, no typed characters, no cursor — while everything outside the
+clip drew normally. The box now trims the string to fit instead of clipping,
+and the test suite treats any `clipRect` call as a failure so it cannot come
+back.
 
 ### The on-screen keyboard
 

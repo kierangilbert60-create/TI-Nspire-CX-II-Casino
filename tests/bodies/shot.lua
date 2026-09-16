@@ -30,7 +30,12 @@ local function dump(name, setup, w, h)
   f:write(table.concat(out)); f:close()
 end
 
-dump("input", function() end, 325, 217)
+dump("input", function() app.text = "2x+3=11"; app.caret = 7 end, 325, 217)
+dump("dropdown", function()
+  app.focus = "mode"
+  app.text = "2x+3=11"; app.caret = 7
+  on.enterKey()
+end, 325, 217)
 dump("keypad", function() app.screen = "keys"; app.kpRow, app.kpCol = 2, 4
                           app.text = "2x+3=11"; app.caret = 7 end, 325, 217)
 dump("result", function()

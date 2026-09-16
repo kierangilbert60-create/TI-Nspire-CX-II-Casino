@@ -85,7 +85,13 @@ function gc:fillArc(x, y, w, h, a, b) num(x); num(y); num(w); num(h); num(a); nu
 function gc:drawArc(x, y, w, h, a, b) num(x); num(y); num(w); num(h); num(a); num(b); self.calls = self.calls + 1 end
 function gc:drawLine(x1, y1, x2, y2) num(x1); num(y1); num(x2); num(y2); M.op(self, "line", x1, y1, x2, y2); self.calls = self.calls + 1 end
 function gc:fillPolygon(pts) assert(type(pts) == "table"); self.calls = self.calls + 1 end
-function gc:clipRect(mode, x, y, w, h) self.calls = self.calls + 1 end
+-- Deliberately fatal: on a real CX II everything drawn inside a clipRect
+-- came out blank (no hint text, no typed characters, no caret), so this
+-- project trims strings to fit instead of clipping.
+function gc:clipRect(mode, x, y, w, h)
+  error("gc:clipRect is banned in this project - it renders blank on real "
+        .. "hardware; trim the string to fit instead", 2)
+end
 function gc:setPen(thickness, style) self.calls = self.calls + 1 end
 function gc:smartGraphicsRefresh() end
 

@@ -3143,6 +3143,8 @@ local app = {
   eventCount = 0,
   kpRow    = 1,
   kpCol    = 1,
+  focus    = "entry",   -- "mode" (the drop-down) or "entry" (the text line)
+  menuTop  = 1,         -- first visible row of the open drop-down
 }
 
 -- On-screen keyboard. The whole program has to be usable with nothing but the
@@ -3436,8 +3438,10 @@ function UI.paintInput(gc)
   setColor(gc, C.bg); gc:fillRect(0, 0, W, H)
   local y = drawHeader(gc, "Step-by-Step Solver")
   y = drawHintBar(gc, y,
-        (app.text == "" and "ENTER keyboard   <- -> mode   ESC menu"
-                         or "ENTER solve   ESC menu   DEL erase"),
+        (app.focus == "mode")
+          and "ENTER open list   <- -> change mode   down to type"
+          or  (app.text == "" and "type here   up = mode list   down = keyboard"
+                               or "ENTER solve   up = mode list   DEL erase"),
         "keys " .. intStr(app.eventCount) .. ":" .. app.lastEvent) + 4
   local m = MODES[app.mode]
 
@@ -3447,11 +3451,19 @@ function UI.paintInput(gc)
   local chipX = 6 + gc:getStringWidth("Mode") + 6
   local chipW = W - chipX - 6
   app.chipRect = { 0, y - 4, W, 27 }
+  app.chipAnchor = { chipX, y, chipW, 19 }
+  local modeFocused = (app.focus == "mode")
   setColor(gc, C.chip); gc:fillRect(chipX, y, chipW, 19)
-  setColor(gc, C.chipEdge); gc:drawRect(chipX, y, chipW, 19)
+  if modeFocused then
+    setColor(gc, C.accent)
+    gc:drawRect(chipX, y, chipW, 19)
+    gc:drawRect(chipX + 1, y + 1, chipW - 2, 17)
+  else
+    setColor(gc, C.chipEdge); gc:drawRect(chipX, y, chipW, 19)
+  end
   setColor(gc, C.header); gc:setFont("sansserif", "b", 9)
   gc:drawString(m.name, chipX + 6, y + 3, "top")
-  setColor(gc, C.chipEdge); gc:setFont("sansserif", "r", 8)
+  setColor(gc, modeFocused and C.accent or C.chipEdge); gc:setFont("sansserif", "r", 8)
   gc:drawString(TRI_DOWN, chipX + chipW - 14, y + 4, "top")
   y = y + 25
 
@@ -3462,29 +3474,42 @@ function UI.paintInput(gc)
   local boxX, boxW, boxH = 6, W - 12, 26
   app.boxRect = { boxX, y, boxW, boxH }
   setColor(gc, C.panel); gc:fillRect(boxX, y, boxW, boxH)
-  setColor(gc, C.accent); gc:drawRect(boxX, y, boxW, boxH)
+  if app.focus == "entry" then
+    setColor(gc, C.accent)
+    gc:drawRect(boxX, y, boxW, boxH)
+    gc:drawRect(boxX + 1, y + 1, boxW - 2, boxH - 2)
+  else
+    setColor(gc, C.chipEdge); gc:drawRect(boxX, y, boxW, boxH)
+  end
 
+  -- Long entries are handled by trimming the string to what fits, NOT by
+  -- gc:clipRect. On a real handheld the clipped region came out blank -
+  -- hint, text and caret all invisible - so nothing here may rely on it.
   gc:setFont("sansserif", "b", 11)
-  local before = app.text:sub(1, app.caret)
-  local wBefore = gc:getStringWidth(before)
   local inner = boxW - 12
-  if wBefore - app.inScroll > inner then app.inScroll = wBefore - inner end
-  if wBefore - app.inScroll < 0 then app.inScroll = wBefore end
-  if app.inScroll < 0 then app.inScroll = 0 end
-
-  gc:clipRect("set", boxX + 2, y + 1, boxW - 4, boxH - 2)
+  local caretX = boxX + 6
   if app.text == "" then
     setColor(gc, C.dim); gc:setFont("sansserif", "r", 10)
     gc:drawString(m.hint, boxX + 6, y + 6, "top")
     gc:setFont("sansserif", "b", 11)
   else
+    local before = app.text:sub(1, app.caret)
+    local after = app.text:sub(app.caret + 1)
+    -- drop characters from the left until the text before the caret fits
+    while #before > 0 and gc:getStringWidth(before) > inner do
+      before = before:sub(utf8Next(before, 0) + 1)
+    end
+    -- then fill whatever room is left with the text after the caret
+    local room = inner - gc:getStringWidth(before)
+    while #after > 0 and gc:getStringWidth(after) > room do
+      after = after:sub(1, utf8Prev(after, #after))
+    end
     setColor(gc, C.text)
-    gc:drawString(app.text, boxX + 6 - app.inScroll, y + 5, "top")
+    gc:drawString(before .. after, boxX + 6, y + 5, "top")
+    caretX = boxX + 6 + gc:getStringWidth(before)
   end
   setColor(gc, C.caret)
-  local cx = boxX + 6 + wBefore - app.inScroll
-  gc:fillRect(cx, y + 4, 2, boxH - 9)
-  gc:clipRect("restore")
+  gc:fillRect(caretX, y + 4, 2, boxH - 9)
   y = y + boxH + 6
 
   if app.error then
@@ -3524,45 +3549,70 @@ function UI.paintMenu(gc)
   rows[#rows + 1] = "Help / how to type maths"
   app.menuRows = rows
 
-  local rowH = 16
-  local panelH = rowH * #rows + 22
-  local panelW = W - 30
-  local px, py = 15, math.floor((H - panelH) / 2)
-  if py < 4 then py = 4 end
+  -- Drop down from the chip itself rather than floating in the middle, and
+  -- size the list to the space actually below it so nothing is cut off on a
+  -- host that over-reports its height.
+  local anchor = app.chipAnchor or { 6, 46, W - 12, 19 }
+  local px = anchor[1]
+  local panelW = anchor[3]
+  local py = anchor[2] + anchor[4] - 1
+  local rowH = 15
+  -- leave the footer band clear, or the last row is drawn over
+  local room = (H - 22) - py
+  if room > 150 then room = 150 end
+  local fits = math.floor((room - 4) / rowH)
+  if fits < 3 then fits = 3 end
+  if fits > #rows then fits = #rows end
+
+  if app.menuSel < app.menuTop then app.menuTop = app.menuSel end
+  if app.menuSel > app.menuTop + fits - 1 then app.menuTop = app.menuSel - fits + 1 end
+  if app.menuTop < 1 then app.menuTop = 1 end
+
+  local panelH = rowH * fits + 4
   app.menuRect = { px, py, panelW, panelH, rowH }
 
   setColor(gc, C.panel); gc:fillRect(px, py, panelW, panelH)
-  setColor(gc, C.header); gc:drawRect(px, py, panelW, panelH)
-  gc:fillRect(px, py, panelW, 18)
-  setColor(gc, C.headerTx); gc:setFont("sansserif", "b", 9)
-  gc:drawString("Choose what to do", px + 6, py + 3, "top")
+  setColor(gc, C.accent); gc:drawRect(px, py, panelW, panelH)
 
-  for i, label in ipairs(rows) do
-    local ry = py + 18 + (i - 1) * rowH
-    if i == app.menuSel then
-      setColor(gc, C.sel); gc:fillRect(px + 1, ry, panelW - 2, rowH)
-      setColor(gc, C.selTx)
-    else
-      setColor(gc, C.text)
+  for slot = 0, fits - 1 do
+    local i = app.menuTop + slot
+    local label = rows[i]
+    if label then
+      local ry = py + 2 + slot * rowH
+      if i == app.menuSel then
+        setColor(gc, C.sel); gc:fillRect(px + 2, ry, panelW - 4, rowH)
+        setColor(gc, C.selTx)
+      else
+        setColor(gc, C.text)
+      end
+      gc:setFont("sansserif", (i == app.menuSel) and "b" or "r", 9)
+      local tag = (i <= #MODES) and (intStr(i) .. ".  ") or "     "
+      gc:drawString(tag .. label, px + 6, ry + 1, "top")
     end
-    gc:setFont("sansserif", (i == app.menuSel) and "b" or "r", 9)
-    local tag = (i <= #MODES) and (intStr(i) .. ".  ") or "     "
-    gc:drawString(tag .. label, px + 6, ry + 2, "top")
   end
-  drawFooter(gc, "up/down choose   ENTER select   ESC cancel   1-" .. intStr(#MODES) .. " jump")
+  -- scroll marks when the list is longer than the space
+  setColor(gc, C.chipEdge); gc:setFont("sansserif", "r", 7)
+  if app.menuTop > 1 then
+    gc:drawString("\226\150\178", px + panelW - 12, py + 1, "top")
+  end
+  if app.menuTop + fits - 1 < #rows then
+    gc:drawString(TRI_DOWN, px + panelW - 12, py + panelH - 11, "top")
+  end
+  drawFooter(gc, "up/down choose   ENTER select   ESC close")
 end
 
 function UI.paintExamples(gc)
   setColor(gc, C.bg); gc:fillRect(0, 0, W, H)
   local m = MODES[app.mode]
-  local top = drawHeader(gc, "Examples - " .. m.name, intStr(app.exSel) .. "/" .. intStr(#m.examples))
+  local list = UI.exampleList()
+  local top = drawHeader(gc, "Examples - " .. m.name, intStr(app.exSel) .. "/" .. intStr(#list))
   local bottom = H - 15
   local rowH = 16
   local fits = math.floor((bottom - top - 4) / rowH)
   local first = 1
   if app.exSel > fits then first = app.exSel - fits + 1 end
   app.exFirst, app.exRowH, app.exTop = first, rowH, top + 2
-  for i = first, math.min(#m.examples, first + fits - 1) do
+  for i = first, math.min(#list, first + fits - 1) do
     local ry = top + 2 + (i - first) * rowH
     if i == app.exSel then
       setColor(gc, C.sel); gc:fillRect(4, ry, W - 8, rowH)
@@ -3571,7 +3621,7 @@ function UI.paintExamples(gc)
       setColor(gc, C.text)
     end
     gc:setFont("sansserif", (i == app.exSel) and "b" or "r", 9)
-    gc:drawString(m.examples[i], 10, ry + 2, "top")
+    gc:drawString(list[i], 10, ry + 2, "top")
   end
   drawFooter(gc, "up/down choose   ENTER load into the entry line   ESC back")
 end
@@ -3753,7 +3803,25 @@ end
 
 function UI.openMenu()
   app.menuSel = app.mode
+  app.menuTop = 1
+  app.focus = "mode"
   app.screen = "menu"
+end
+
+-- The Examples list also carries what you entered earlier, most recent first,
+-- now that the arrow keys drive the drop-down instead of a history ring.
+function UI.exampleList()
+  local out = {}
+  for _, ex in ipairs(MODES[app.mode].examples) do out[#out + 1] = ex end
+  for i = #app.history, 1, -1 do
+    local h = app.history[i]
+    local dup = false
+    for _, e in ipairs(out) do
+      if e == h then dup = true; break end
+    end
+    if not dup then out[#out + 1] = h end
+  end
+  return out
 end
 
 function UI.openKeypad()
@@ -3767,6 +3835,7 @@ function UI.chooseMenu()
   if app.menuSel <= n then
     app.mode = app.menuSel
     app.screen = "input"
+    app.focus = "entry"
     app.error = nil
   elseif app.menuSel == n + 1 then
     UI.openKeypad()
@@ -3856,7 +3925,7 @@ function on.charIn(ch)
     end
   elseif app.screen == "examples" then
     local d = tonumber(ch)
-    local ex = MODES[app.mode].examples
+    local ex = UI.exampleList()
     if d and d >= 1 and d <= #ex then app.exSel = d end
   elseif app.screen == "keys" then
     UI.insert(ch)
@@ -3869,19 +3938,24 @@ end
 function on.enterKey()
   logEvent("enter")
   if app.screen == "input" then
-    UI.run()
+    if app.focus == "mode" then
+      UI.openMenu()
+    else
+      UI.run()
+    end
   elseif app.screen == "keys" then
     UI.keypadPress()
   elseif app.screen == "menu" then
     UI.chooseMenu()
   elseif app.screen == "examples" then
-    local ex = MODES[app.mode].examples[app.exSel]
+    local ex = UI.exampleList()[app.exSel]
     if ex then
       app.text = ex
       app.caret = #ex
       app.inScroll = 0
       app.error = nil
     end
+    app.focus = "entry"
     app.screen = "input"
   elseif app.screen == "result" or app.screen == "help" then
     app.screen = "input"
@@ -3945,10 +4019,18 @@ end
 function on.arrowKey(key)
   logEvent(tostring(key))
   if app.screen == "input" then
-    if key == "left" then
-      -- With an empty entry line there is no caret to move, so the
-      -- left/right arrows change mode instead. This is the one mode control
-      -- that cannot be swallowed by the host software's own key handling.
+    if app.focus == "mode" then
+      -- the drop-down is selected: left/right step through the modes,
+      -- down moves on to the entry line
+      if key == "left" then
+        app.mode = (app.mode - 2) % #MODES + 1
+      elseif key == "right" then
+        app.mode = app.mode % #MODES + 1
+      else
+        app.focus = "entry"
+      end
+    elseif key == "left" then
+      -- nothing to move the caret through on an empty line, so step the mode
       if app.text == "" then
         app.mode = (app.mode - 2) % #MODES + 1
       else
@@ -3961,29 +4043,19 @@ function on.arrowKey(key)
         app.caret = utf8Next(app.text, app.caret)
       end
     elseif key == "up" then
-      if #app.history > 0 and app.histPos > 1 then
-        app.histPos = app.histPos - 1
-        app.text = app.history[app.histPos]
-        app.caret = #app.text
-      end
+      app.focus = "mode"
     elseif key == "down" then
-      if app.histPos < #app.history then
-        app.histPos = app.histPos + 1
-        app.text = app.history[app.histPos]
-      else
-        app.histPos = #app.history + 1
-        app.text = ""
-      end
-      app.caret = #app.text
+      UI.openKeypad()
     end
   elseif app.screen == "menu" then
     local n = #(app.menuRows or MODES)
     if key == "up" then app.menuSel = (app.menuSel - 2) % n + 1 end
     if key == "down" then app.menuSel = app.menuSel % n + 1 end
+    if key == "left" then app.screen = "input" end
   elseif app.screen == "keys" then
     UI.keypadMove(key)
   elseif app.screen == "examples" then
-    local n = #MODES[app.mode].examples
+    local n = #UI.exampleList()
     if key == "up" then app.exSel = (app.exSel - 2) % n + 1 end
     if key == "down" then app.exSel = app.exSel % n + 1 end
   elseif app.screen == "result" or app.screen == "help" then
@@ -4006,6 +4078,7 @@ function on.mouseDown(x, y)
     if inRect(app.chipRect, x, y) then
       UI.openMenu()
     elseif inRect(app.boxRect, x, y) then
+      app.focus = "entry"
       -- place the caret at the clicked character when measuring is available
       local target = x - app.boxRect[1] - 6 + app.inScroll
       local placed = pcall(function()
@@ -4037,11 +4110,12 @@ function on.mouseDown(x, y)
     end
   elseif app.screen == "examples" then
     local idx = math.floor((y - (app.exTop or 0)) / (app.exRowH or 16)) + (app.exFirst or 1)
-    local ex = MODES[app.mode].examples
+    local ex = UI.exampleList()
     if idx >= 1 and idx <= #ex then
       app.exSel = idx
       app.text = ex[idx]
       app.caret = #app.text
+      app.focus = "entry"
       app.screen = "input"
     end
   elseif app.screen == "keys" then
